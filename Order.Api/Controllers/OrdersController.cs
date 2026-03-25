@@ -29,17 +29,23 @@ namespace Orders.Api.Controllers
         public async Task<ActionResult<Order>> PostOrder(Order order)
         {
             order.Id = Guid.NewGuid();
+            
             _context.Orders.Add(order);
+            _context.Outbox.Add(new OrdersOutbox
+            {
+                Id = Guid.NewGuid(),
+                Payload = order
+            });
             await _context.SaveChangesAsync();
-            try
-            {
-                await _sender.SendMessageAsync(order);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Failed to send message to RabbitMQ");
+            //try
+            //{
+            //    await _sender.SendMessageAsync(order);
+            //}
+            //catch (Exception exception)
+            //{
+            //    _logger.LogError(exception, "Failed to send message to RabbitMQ");
 
-            }
+            //}
             return CreatedAtAction("PostOrder", new { id = order.Id }, order);
         }
 

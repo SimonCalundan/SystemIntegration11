@@ -34,6 +34,7 @@ namespace Orders.Api.Services
             catch (Exception exception)
             {
                 _logger.LogError(exception, "Failed to send message to RabbitMQ");
+                throw;
             }
         }
     }

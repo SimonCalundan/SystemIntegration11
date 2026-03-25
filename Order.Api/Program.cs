@@ -3,6 +3,7 @@ using Orders.Api.data;
 using Orders.Api.Models;
 using Orders.Api.Services;
 using Scalar.AspNetCore;
+using Shipping.Api.Services;
 
 namespace Orders.Api;
 
@@ -19,7 +20,8 @@ public class Program
         builder.Services.AddControllers();
         // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
         builder.Services.AddOpenApi();
-        builder.Services.AddScoped<IShippingMessageSender, ShippingMessageSender>();
+        builder.Services.AddSingleton<IShippingMessageSender, ShippingMessageSender>();
+        builder.Services.AddHostedService<OutboxProcessor>();
         var app = builder.Build();
 
         app.MapDefaultEndpoints();

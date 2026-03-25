@@ -9,7 +9,7 @@ namespace Shipping.Api.Services
         private readonly ILogger<ShippingMessageReceiver> _logger;
         private readonly IConnection _connection;
         private readonly IServiceScopeFactory _scopeFactory;
-        private IChannel _channel; 
+        private IChannel? _channel; 
 
         public ShippingMessageReceiver(IConnection connection, ILogger<ShippingMessageReceiver> logger, IServiceScopeFactory scopeFactory)
         {

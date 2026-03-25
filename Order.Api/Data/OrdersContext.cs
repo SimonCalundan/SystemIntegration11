@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Orders.Api.Models;
 
 namespace Orders.Api.data
 {
@@ -9,6 +10,7 @@ namespace Orders.Api.data
             
         }
 
-        public DbSet<Models.Order> Orders { get; set; }
+        public DbSet<Order> Orders { get; set; }
+        public DbSet<OrdersOutbox> Outbox { get; set; }
     }
 }
