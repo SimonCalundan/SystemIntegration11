@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\SystemIntegration10.ServiceDefaults\SystemIntegration10.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\SystemIntegration11.ServiceDefaults\SystemIntegration11.ServiceDefaults.csproj" />
   </ItemGroup>
 
 </Project>

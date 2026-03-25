@@ -4,6 +4,6 @@
   </Folder>
   <Project Path="Order.Api/Orders.Api.csproj" />
   <Project Path="Shipping.Api/Shipping.Api.csproj" />
-  <Project Path="SystemIntegration10.AppHost/SystemIntegration10.AppHost.csproj" />
-  <Project Path="SystemIntegration10.ServiceDefaults/SystemIntegration10.ServiceDefaults.csproj" />
+  <Project Path="SystemIntegration11.AppHost/SystemIntegration11.AppHost.csproj" />
+  <Project Path="SystemIntegration11.ServiceDefaults/SystemIntegration11.ServiceDefaults.csproj" />
 </Solution>
