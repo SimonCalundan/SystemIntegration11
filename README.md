@@ -6,7 +6,7 @@ Dette projekt er en distribueret løsning bygget med **.NET 10** og **.NET Aspir
 
 Løsningen består af to primære API-services, der kommunikerer asynkront:
 
-1.  **Order.Api**: Ansvarlig for håndtering af ordrer. Når en ordre oprettes, gemmes den i sin egen database, og en besked sendes til en kø i RabbitMQ.
+1.  **Order.Api**: Ansvarlig for håndtering af ordrer. Når en ordre oprettes, gemmes den i sin egen database sammen med en outbox-besked. En baggrundsservice (**OutboxProcessor**) læser derefter disse beskeder og sender dem til RabbitMQ, hvilket sikrer pålidelig levering (Transactional Outbox pattern).
 2.  **shipping** (Shipping.Api): Ansvarlig for forsendelse. Den lytter på RabbitMQ-køen (`shipping_queue`) og opretter en forsendelsesordre i sin egen database, når en ny ordre-besked modtages. Den udstiller desuden et REST API (`/api/Shipping`) til overvågning og opdatering af forsendelsesstatus.
 3.  **RabbitMQ**: Fungerer som message broker, der sikrer løs kobling (loose coupling) mellem de to services.
 4.  **PostgreSQL**: Anvendes som persistent lagring med separate databaser for hver service (`ordersDb` til ordrer og `shippingdb` til forsendelse).
@@ -24,6 +24,7 @@ graph TD
         subgraph "Order Service"
             OA[order-api]
             OD[(PostgreSQL: ordersDb)]
+            OP[OutboxProcessor]
         end
 
         subgraph "Message Broker"
@@ -38,8 +39,9 @@ graph TD
 
     U -->|POST /api/orders| OA
     U -->|GET/PUT/DELETE /api/Shipping| SA
-    OA -->|Gemmer ordre| OD
-    OA -->|Publicerer til shipping_queue| RMQ
+    OA -->|Gemmer ordre & outbox| OD
+    OP -->|Læser outbox| OD
+    OP -->|Publicerer til shipping_queue| RMQ
     RMQ -.->|Konsumerer besked| SA
     SA -->|Opretter/Opdaterer ShippingOrder| SD
 ```
@@ -51,80 +53,21 @@ graph TD
 4. I kan tilgå Postgres databaserne via pgweb admin værktøjet.
 
 
+### Opgave: Implementer Idempotent Receiver
+I et distribueret system kan beskeder blive leveret mere end én gang (at-least-once delivery). Dette kan ske pga. netværksfejl, retries i RabbitMQ eller hvis en service crasher lige efter at have behandlet en besked, men før den sender ACK.
+
+**Formål:** Sørg for at `Shipping.Api` ikke opretter flere forsendelsesordrer for den samme oprindelige ordre, hvis den modtager den samme besked to gange.
+
+1.  Gå til `Shipping.Api/Services/ShippingMessageReceiver.cs`.
+2.  Kør tests og verificer at de fejler med at der er to ShippingOrders oprettet for den samme OrderId.
+3.  Implementer et tjek mod `ShippingContext.ShippingOrders` databasen for at se om en ordre med det pågældende `OrderId` allerede er oprettet.
+4.  Hvis den findes, skal du logge en advarsel og springe over oprettelsen.
+5.  **Bonus:** Forbedr pålideligheden ved at deaktivere `autoAck` og i stedet sende et eksplicit ACK til RabbitMQ kun når beskeden er færdigbehandlet og gemt i databasen.
+
 ## Teknologier
 - **Framework:** .NET 10
 - **Orkestrering:** .NET Aspire
 - **Beskedkø:** RabbitMQ (via Aspire RabbitMQ Client)
 - **Database:** PostgreSQL (via Aspire Npgsql EntityFrameworkCore)
 - **API:** ASP.NET Core Controllers
-
-## Opgave: Implementering af Outbox Pattern
-
-Den nuværende implementering i `Order.Api` gemmer en ordre i databasen og forsøger derefter at sende en besked til RabbitMQ:
-
-```csharp
-[HttpPost]
-public async Task<ActionResult<Order>> PostOrder(Order order)
-{
-    order.Id = Guid.NewGuid();
-    _context.Orders.Add(order);
-    await _context.SaveChangesAsync(); // Gemmer i DB
-    try
-    {
-        await _sender.SendMessageAsync(order); // Forsøger at sende besked
-    }
-    catch (Exception exception)
-    {
-        _logger.LogError(exception, "Failed to send message to RabbitMQ");
-    }
-    return CreatedAtAction("PostOrder", new { id = order.Id }, order);
-}
-```
-
-Hvis RabbitMQ er nede, eller netværket fejler efter ordren er gemt, vil beskeden aldrig blive sendt, hvilket skaber inkonsistens mellem systemerne.
-
-### Flow-diagram for Outbox Pattern
-
-```mermaid
-sequenceDiagram
-    participant C as Klient
-    participant API as Order.Api (Controller)
-    participant DB as PostgreSQL (ordersDb)
-    participant W as Background Worker
-    participant RMQ as RabbitMQ
-    participant S as Shipping.Api
-
-    C->>API: POST /api/orders
-    activate API
-    API->>DB: Start Transaktion
-    API->>DB: Gem Ordre
-    API->>DB: Gem OutboxMessage
-    API->>DB: Commit Transaktion
-    API-->>C: 201 Created
-    deactivate API
-
-    loop Hvert 5. sekund
-        W->>DB: Find ubehandlede beskeder
-        DB-->>W: Liste af beskeder
-        loop For hver besked
-            W->>RMQ: Send besked
-            RMQ-->>W: Ack
-            W->>DB: Marker som behandlet (ProcessedAt)
-        end
-    end
-
-    RMQ->>S: Lever besked
-    S->>S: Opret forsendelse
-```
-
-**Mål:** Implementer **Outbox Pattern** for at sikre, at ordrer og beskeder håndteres atomart.
-
-### Trin:
-1.  **Opret en Outbox tabel:** Tilføj en `OutboxMessage` model til `Order.Api` (f.eks. med `Id`, `Type`, `Payload` som JSON, og `ProcessedAtUTC`).
-2.  **Atomar gem-operation:** Opdater `OrdersController.PostOrder` til at gemme både ordren og en tilsvarende `OutboxMessage` i den samme database-transaktion. Fjern det direkte kald til `IShippingMessageSender`.
-3.  **Implementer en Background Worker:** Opret en `BackgroundService` i `Order.Api`, der periodisk (f.eks. hvert 5. sekund) poller databasen for ubehandlede beskeder.
-4.  **Send og marker:** For hver ubehandlet besked i worker-servicen:
-    *   Send beskeden via `IShippingMessageSender`.
-    *   Marker beskeden som behandlet i databasen (`ProcessedAtUTC = DateTime.UtcNow`).
-5.  **Test fejltolerance:** Stop RabbitMQ-containeren, opret en ordre, og verificer at beskeden ligger i Outbox-tabellen. Start derefter RabbitMQ igen og se worker-servicen aflevere beskeden til `shipping` servicen.
 
